@@ -10,6 +10,7 @@ import batch_certify_utils
 parser = argparse.ArgumentParser(description='FA MILP Certification')
 parser.add_argument('--evaluations',  type=str, help='name of evaluations directory')
 parser.add_argument('--num_classes', type=int, default=10, help='Number of classes')
+parser.add_argument('--dataset', type=str, default="cifar", help='cifar or mnist')
 
 parser.add_argument('--k', default = 50, type=int, help='the inverse of sensitivity')
 parser.add_argument('--d', default = 1, type=int, help='number of duplicates per sample')
@@ -17,6 +18,7 @@ parser.add_argument('--d', default = 1, type=int, help='number of duplicates per
 parser.add_argument('--batch_size', type=int, default=100, help='Test batch size for certification')
 parser.add_argument('--from_idx', type=int, default=0, help='Index of test set to start certification from')
 parser.add_argument('--num_batches', type=int, default=100, help='Number of batches to run certification on')
+parser.add_argument('--k_poisons', type=int, nargs='+', help='Number of points the adversary can poison')
 
 args = parser.parse_args()
 if not os.path.exists('./batch_certs'):
@@ -32,15 +34,15 @@ total_test_size = filein['scores'].shape[0]
 print("total test size", total_test_size)
 print("ensemble size", ensemble_size)
 
-partition_file = torch.load(f"train/FiniteAggregation_hash_mean_cifar_k{args.k}_d{args.d}.pth", weights_only=False, map_location=device)
+if not os.path.exists('./batch_certs/fa_' + str(args.evaluations)):
+    os.makedirs('./batch_certs/fa_' + str(args.evaluations))
+
+partition_file = torch.load(f"train/FiniteAggregation_hash_mean_{args.dataset}_k{args.k}_d{args.d}.pth", weights_only=False, map_location=device)
 idxgroup = partition_file['idx']
 shifts = partition_file['shifts']
 assert len(shifts) == args.d, f"shifts should be of length {args.d}, but got {len(shifts)}"
 # get length of each element in idxgroup as batchsize
 batchsizes = [len(idxgroup[i]) for i in range(len(idxgroup))]
-
-## DEBUG
-gss = []
 
 def get_realised_ps(p_values, shifts, ensemble_size):
     """
@@ -60,19 +62,19 @@ def get_realised_ps(p_values, shifts, ensemble_size):
         
     return p_realised
 
-def certify_batch_fa(k_poison, pred_classes, labels, per_datapoint_acc, shifts, relax=False):
+def certify_batch_fa(k_poison, pred_classes, labels, per_datapoint_acc, shifts):
     """ Solve MILP with Gurobi """
     model = gp.Model("Certification")
     
-    gs = batch_certify_utils.compute_g_roe(f"'./certs/v_fa_roe_{args.evaluations}.pth'") # number of votes to flip before ensemble prediction flips for each test sample
-    gss.append(gs[0]) ## DEBUG
+    gs = batch_certify_utils.compute_g_naive(pred_classes, labels, args.num_classes) # number of votes to flip before ensemble prediction flips for each test sample
     bs = batch_certify_utils.compute_b_naive(k_poison, per_datapoint_acc, ensemble_size) # number of datapoints to poison for each member before prediction for each test sample changes
     n = len(labels) # number of test samples
     print(f"Gs: {gs}")
     print(f"Bs: {bs}")
 
     # Define variables
-    p = model.addVars(ensemble_size, vtype=GRB.INTEGER, lb=0, name="poisoning_vector") # poisoning vector that should sum up to N
+    # Relaxing p to continuous for faster solving (gives the same result)
+    p = model.addVars(ensemble_size, vtype=GRB.CONTINUOUS, lb=0, name="poisoning_vector") # poisoning vector that should sum up to N
     z = model.addVars(n, vtype=GRB.BINARY, name="pred_flipped_indicator")
     # Total points poisoned for each member after FA
     p_realised = get_realised_ps(p, shifts, ensemble_size)
@@ -101,15 +103,12 @@ def certify_batch_fa(k_poison, pred_classes, labels, per_datapoint_acc, shifts, 
     for i in range(ensemble_size):
         model.addConstr(p[i] <= batchsizes[i])
         
-    model.setParam('TimeLimit', 900) # 15 minutes
+    model.setParam('TimeLimit', 1800) # 30 minutes
     
     # loosen optimality tolerance
     # model.setParam('MIPGap', 1e-2)  # Allow 1% gap
     
     model.update()
-    if relax:
-        # Relax integer variable to continuous
-        model = model.relax()
 
     # Optimize
     model.optimize()
@@ -128,6 +127,7 @@ def certify_batch_fa(k_poison, pred_classes, labels, per_datapoint_acc, shifts, 
             worst_case_accuracy = 1 - model.ObjBound
         print("Worst case flipped:", p_values)
         print("Worst case accuracy", worst_case_accuracy)
+        print(f"Solve time: {model.Runtime:.4f} seconds")
         return worst_case_accuracy, p_values, z_values, opt_gap
     
     print("MILP cannot be solved.")
@@ -137,25 +137,19 @@ def run_batch(from_idx, to_idx, shifts):
     pred_classes = torch.argmax(filein['scores'], dim=2)[from_idx:to_idx]
     labels = filein['labels'][from_idx:to_idx]
 
-    # k_poisons = np.arange(0, 601, 50)
-    k_poisons = [3]
-    cert_accs_milp = []
-    per_datapoint_acc, acc = batch_certify_utils.find_nominal_accuracy_and_preds(pred_classes, labels)
-    for k_poison in k_poisons:
+    for k_poison in args.k_poisons:
+        per_datapoint_acc, acc = batch_certify_utils.find_nominal_accuracy_and_preds(pred_classes, labels)
         print(f"Poisoning {k_poison} points")
         worst_case_accuracy, p_values, z_values, opt_gap = certify_batch_fa(k_poison, pred_classes, labels, per_datapoint_acc, shifts)
-        cert_accs_milp.append((worst_case_accuracy, opt_gap))
+        cert_accs_milp = (worst_case_accuracy, opt_gap)
 
-    fname = f"batch_certs/{str(args.evaluations)}/cert_accs_batch_{from_idx}_{to_idx}.pth"
-    torch.save({
-        "cert_accs": cert_accs_milp, 
-        "k_poisons": k_poisons,
-    }, fname)
-    print(f"Results saved to {fname}!")
+        fname = f"batch_certs/fa_{str(args.evaluations)}/cert_accs_N={k_poison}_batch_{from_idx}_{to_idx}.pth"
+        torch.save(cert_accs_milp, fname)
+        print(f"Results saved to {fname}!")
 
 """ Run in batches of 1"""
 run_batch_size = args.batch_size
 test_idx_end = args.from_idx + args.num_batches * run_batch_size
 for i in range(args.from_idx, test_idx_end, run_batch_size):
     print(f"Running batch {i} to {i+run_batch_size}")
-    run_batch(i, i+run_batch_size)
+    run_batch(i, i+run_batch_size, shifts)
