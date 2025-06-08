@@ -29,7 +29,7 @@ args = parser.parse_args()
 checkpoint_dir = 'train/checkpoints'
 if not os.path.exists('./evaluations'):
     os.makedirs('./evaluations')
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Data
 print('==> Preparing data..')
@@ -37,11 +37,13 @@ print('==> Preparing data..')
 
 modelnames = list(map(lambda x: 'train/checkpoints/'+args.models+'/'+x, os.listdir('train/checkpoints/'+args.models)))
 num_classes = 10
-#predictions = torch.zeros(10000, len(modelnames),num_classes).cuda()
-predictions = torch.zeros(10000, len(modelnames),num_classes)
-labels = torch.zeros(10000).type(torch.int).cuda()
+predictions = torch.zeros(10000, len(modelnames),num_classes).cuda()
+# predictions = torch.zeros(10000, args.num_models,num_classes)
+labels = torch.zeros(10000).type(torch.int).to(device)
 firstit = True
-for i in range(len(modelnames)):
+save_fname = './evaluations/'+args.models + '.pth'
+print(f"Will save to {save_fname}")
+for i in range(0, len(modelnames)):
     modelname = 'train/checkpoints/'+args.models+f'/FiniteAggregation_{i}.pth'
     part = i
     seed = 0
@@ -68,7 +70,7 @@ for i in range(len(modelnames)):
     batch_offset = 0
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
-            inputs, targets = inputs.cuda(), targets.cuda()
+            inputs, targets = inputs.to(device), targets.to(device)
             out = net(inputs)
             predictions[batch_offset:inputs.size(0)+batch_offset,i,:] = out
             if firstit:
@@ -76,7 +78,6 @@ for i in range(len(modelnames)):
             batch_offset += inputs.size(0)
             
     firstit = False
-    
-torch.save({'labels': labels, 'scores': predictions},'./evaluations/'+args.models + '.pth')
+torch.save({'labels': labels, 'scores': predictions}, save_fname)
 
 

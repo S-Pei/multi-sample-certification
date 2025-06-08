@@ -38,7 +38,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('==> Preparing data..')
 
 
-modelnames = list(map(lambda x: 'train/checkpoints/'+args.models+'/'+x, list(filter( lambda x:f'v{args.version}.' in x,os.listdir('train/checkpoints/'+args.models)))))
+modelnames = list(map(lambda x: 'train/checkpoints/'+args.models+'/'+x, os.listdir('train/checkpoints/'+args.models)))
 num_classes = 43
 predictions = torch.zeros(12630, len(modelnames),num_classes).cuda()
 labels = torch.zeros(12630).type(torch.int).cuda()

@@ -7,10 +7,10 @@ import argparse
 import os
 import batch_certify_utils
 
-parser = argparse.ArgumentParser(description='FA MILP Certification')
+parser = argparse.ArgumentParser(description='FA+ROE MILP Certification')
 parser.add_argument('--evaluations',  type=str, help='name of evaluations directory')
 parser.add_argument('--num_classes', type=int, default=10, help='Number of classes')
-parser.add_argument('--dataset', type=str, default="cifar", help='cifar or mnist')
+parser.add_argument('--dataset', type=str, default="cifar", help='cifar/mnist/gtsrb')
 
 parser.add_argument('--k', default = 50, type=int, help='the inverse of sensitivity')
 parser.add_argument('--d', default = 1, type=int, help='number of duplicates per sample')
@@ -24,7 +24,7 @@ args = parser.parse_args()
 if not os.path.exists('./batch_certs'):
     os.makedirs('./batch_certs')
 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
 filein = torch.load('./evaluations/'+args.evaluations + '.pth', map_location=device)
@@ -139,12 +139,15 @@ def run_batch(from_idx, to_idx, shifts):
     labels = filein['labels'][from_idx:to_idx]
 
     for k_poison in args.k_poisons:
-        per_datapoint_acc, acc = batch_certify_utils.find_nominal_accuracy_and_preds(pred_classes, labels)
+        fname = f"batch_certs/fa_roe_{str(args.evaluations)}/cert_accs_N={k_poison}_batch_{from_idx}_{to_idx}.pth"
+        if os.path.exists(fname):
+            print(f"Already computed batch {from_idx} -> {to_idx}, skipping...")
+            continue
+        per_datapoint_acc, acc = batch_certify_utils.find_nominal_accuracy_and_preds(pred_classes, labels, num_classes=args.num_classes)
         print(f"Poisoning {k_poison} points")
         worst_case_accuracy, p_values, z_values, opt_gap = certify_batch_fa_roe(k_poison, pred_classes, labels, per_datapoint_acc, shifts, from_idx, to_idx)
         cert_accs_milp = (worst_case_accuracy, opt_gap)
 
-        fname = f"batch_certs/fa_roe_{str(args.evaluations)}/cert_accs_N={k_poison}_batch_{from_idx}_{to_idx}.pth"
         torch.save(cert_accs_milp, fname)
         print(f"Results saved to {fname}!")
 

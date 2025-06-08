@@ -2,11 +2,11 @@ import torch
 import numpy as np
 import tqdm
 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def find_nominal_accuracy_and_preds(y_preds, labels):
+def find_nominal_accuracy_and_preds(y_preds, labels, num_classes=10):
     """Compute unpoisoned predictions"""
-    votes = [np.bincount(pred_class.to(torch.int64).cpu().numpy(), minlength=10) for pred_class in y_preds]
+    votes = [np.bincount(pred_class.to(torch.int64).cpu().numpy(), minlength=num_classes) for pred_class in y_preds]
     preds = np.argmax(votes, axis=1)
     nominal_accuracy = y_preds == labels.unsqueeze(1)
     nominal_accuracy = nominal_accuracy.T

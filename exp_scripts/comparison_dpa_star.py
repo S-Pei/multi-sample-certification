@@ -17,18 +17,12 @@ args = parser.parse_args()
 if not os.path.exists('results'):
     os.makedirs('results')
 
-""" FA Comparison """
+""" DPA*+ROE Comparison """
 batch_certs = []
 batch_size = args.batch_size
 
 k_poisons = args.k_poisons
 
-## Load pointwise certs
-certs = torch.load(f"certs/v_{str(args.method)}_{str(args.evaluations)}.pth")
-print(f"Comparing for method {args.method}")
-
-certs = certs[:args.test_size]
-a = certs.cpu().sort()[0].numpy()
 for k_poison in k_poisons:
     batch_certs = []
     for i in range(0, args.test_size, batch_size):
@@ -47,18 +41,9 @@ for k_poison in k_poisons:
     batch_cert_std = np.std(batch_certs)
     print(f"Batch certs: {batch_cert_acc}")
 
-    dpa_accs = np.array([(i <= a).sum() for i in np.arange(np.amax(a)+1)])/len(a)
-
-    pointwise_cert = dpa_accs[k_poison]
-    improvement = (batch_cert_acc - pointwise_cert)
-    print(f"Pointwise cert: {pointwise_cert}")
-    print(f"Improvement in accuracy with batchsize={batch_size}: {improvement*100}%")
-    
     torch.save(
         {
             'batch_cert_acc': batch_cert_acc,
-            'pointwise_cert': pointwise_cert,
-            'improvement': improvement,
             'batch_cert_max': batch_cert_max,
             'batch_cert_min': batch_cert_min,
             'batch_cert_std': batch_cert_std,

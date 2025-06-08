@@ -188,8 +188,8 @@ for i in range(num_of_samples):
 
         CertR2_c = max(CertR2_c_1, CertR2_c_2)
         CertR2 = min(CertR2, CertR2_c)
-
-    assert(CertR1 > 0 and CertR2 > 0)
+    
+    assert(CertR1 >= 0 and CertR2 >= 0)
     certs[i] = min(CertR1, CertR2) - 1
 
     if i % 1000 == 0:

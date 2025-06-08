@@ -36,7 +36,7 @@ def debug(B, g1, g2):
     print(f'g1, g2: {g1, g2} --> {B[g1][g2]}')
 
 if __name__ == '__main__':
-    K = 5000
+    K = 19200
     A = find_array(K)
     B = np.zeros((K - 1, K - 1, ), dtype=int)
 

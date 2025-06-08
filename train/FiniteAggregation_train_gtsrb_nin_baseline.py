@@ -27,6 +27,8 @@ parser.add_argument('--start', required=True, type=int, help='starting subset nu
 parser.add_argument('--range', default=250, type=int, help='number of subsets to train')
 parser.add_argument('--zero_seed', action='store_true', help='Use a random seed of zero (instead of the partition index)')
 
+# parser.add_argument('--version', required=True, type=int, help='version of base classifiers')
+
 args = parser.parse_args()
 
 args.n_subsets = args.k * args.d
@@ -44,6 +46,7 @@ checkpoint_dir = 'checkpoints'
 if not os.path.exists('./checkpoints'):
     os.makedirs('./checkpoints')
 checkpoint_subdir = f'./{checkpoint_dir}/' + dirbase + f'_FiniteAggregation_k{args.k}_d{args.d}'
+# checkpoint_subdir = f'./{checkpoint_dir}/' + dirbase + f'_FiniteAggregation_k{args.k}_d{args.d}_v{args.version}'
 if not os.path.exists(checkpoint_subdir):
     os.makedirs(checkpoint_subdir)
 print("==> Checkpoint directory", checkpoint_subdir)
@@ -66,6 +69,7 @@ class Flatten(nn.Module):
 
 for part in range(args.start, args.start + args.range):
     seed = part
+    # seed = (part + 1) * args.version * args.version
     if (args.zero_seed):
         seed = 0
         

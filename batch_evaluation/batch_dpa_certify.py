@@ -9,7 +9,7 @@ import batch_certify_utils
 parser = argparse.ArgumentParser(description='DPA MILP Certification')
 parser.add_argument('--evaluations',  type=str, help='name of evaluations directory')
 parser.add_argument('--num_classes', type=int, default=10, help='Number of classes')
-parser.add_argument('--dataset', type=str, default="cifar", help='cifar or mnist')
+parser.add_argument('--dataset', type=str, default="cifar", help='cifar/mnist/gtsrb')
 
 parser.add_argument('--batch_size', type=int, default=100, help='Test batch size for certification')
 parser.add_argument('--from_idx', type=int, default=0, help='Index of test set to start certification from')
@@ -111,12 +111,15 @@ def run_batch(from_idx, to_idx):
     labels = filein['labels'][from_idx:to_idx]
 
     for k_poison in args.k_poisons:
-        per_datapoint_acc, acc = batch_certify_utils.find_nominal_accuracy_and_preds(pred_classes, labels)
+        fname = f"batch_certs/dpa_{str(args.evaluations)}/cert_accs_N={k_poison}_batch_{from_idx}_{to_idx}.pth"
+        if os.path.exists(fname):
+            print(f"Already computed batch {from_idx} -> {to_idx}, skipping...")
+            continue
+        per_datapoint_acc, acc = batch_certify_utils.find_nominal_accuracy_and_preds(pred_classes, labels, num_classes=args.num_classes)
         print(f"Poisoning {k_poison} points")
         worst_case_accuracy, p_values, z_values, opt_gap = certify_batch_dpa(k_poison, pred_classes, labels, per_datapoint_acc)
         cert_accs_milp = (worst_case_accuracy, opt_gap)
 
-        fname = f"batch_certs/dpa_{str(args.evaluations)}/cert_accs_N={k_poison}_batch_{from_idx}_{to_idx}.pth"
         torch.save(cert_accs_milp, fname)
         print(f"Results saved to {fname}!")
 

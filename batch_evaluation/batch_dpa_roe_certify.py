@@ -10,14 +10,12 @@ import batch_certify_utils
 parser = argparse.ArgumentParser(description='DPA+ROE MILP Certification')
 parser.add_argument('--evaluations',  type=str, help='name of evaluations directory')
 parser.add_argument('--num_classes', type=int, default=10, help='Number of classes')
-parser.add_argument('--dataset', type=str, default="cifar", help='cifar or mnist')
+parser.add_argument('--dataset', type=str, default="cifar", help='cifar/mnist/gtsrb')
 
 parser.add_argument('--batch_size', type=int, default=100, help='Test batch size for certification')
 parser.add_argument('--from_idx', type=int, default=0, help='Index of test set to start certification from')
 parser.add_argument('--num_batches', type=int, default=100, help='Number of batches to run certification on')
 parser.add_argument('--k_poisons', type=int, nargs='+', help='Number of points the adversary can poison')
-
-parser.add_argument('--relax', type=bool, default=False, help='Relax the MILP')
 
 args = parser.parse_args()
 if not os.path.exists('./batch_certs'):
@@ -39,7 +37,7 @@ idxgroup = torch.load(f"train/FiniteAggregation_hash_mean_{args.dataset}_k{ensem
 # get length of each element in idxgroup as batchsize
 batchsizes = [len(idxgroup[i]) for i in range(len(idxgroup))]
 
-def certify_batch_dpa_roe(k_poison, pred_classes, labels, per_datapoint_acc, from_idx, to_idx, relax=False):
+def certify_batch_dpa_roe(k_poison, pred_classes, labels, per_datapoint_acc, from_idx, to_idx):
     """ Solve MILP with Gurobi """
     model = gp.Model("Certification")
     
@@ -97,8 +95,7 @@ def certify_batch_dpa_roe(k_poison, pred_classes, labels, per_datapoint_acc, fro
         z_values = [vars[f'pred_flipped_indicator[{k}]'] for k in range(n)]
         worst_case_accuracy = 1-model.objVal
         opt_gap = 0
-        if not relax:
-            opt_gap = model.MIPGap
+        opt_gap = model.MIPGap
         if model.status == GRB.TIME_LIMIT:
             print("Gurobi reached time limit, returning dual solution found.")
             worst_case_accuracy = 1 - model.ObjBound
@@ -115,12 +112,15 @@ def run_batch(from_idx, to_idx):
     labels = filein['labels'][from_idx:to_idx]
 
     for k_poison in args.k_poisons:
-        per_datapoint_acc, acc = batch_certify_utils.find_nominal_accuracy_and_preds(pred_classes, labels)
+        fname = f"batch_certs/dpa_roe_{str(args.evaluations)}/cert_accs_N={k_poison}_batch_{from_idx}_{to_idx}.pth"
+        if os.path.exists(fname):
+            print(f"Already computed batch {from_idx} -> {to_idx}, skipping...")
+            continue
+        per_datapoint_acc, acc = batch_certify_utils.find_nominal_accuracy_and_preds(pred_classes, labels, num_classes=args.num_classes)
         print(f"Poisoning {k_poison} points")
-        worst_case_accuracy, p_values, z_values, opt_gap = certify_batch_dpa_roe(k_poison, pred_classes, labels, per_datapoint_acc, from_idx, to_idx, relax=args.relax)
+        worst_case_accuracy, p_values, z_values, opt_gap = certify_batch_dpa_roe(k_poison, pred_classes, labels, per_datapoint_acc, from_idx, to_idx)
         cert_accs_milp = (worst_case_accuracy, opt_gap)
 
-        fname = f"batch_certs/dpa_roe_{str(args.evaluations)}/cert_accs_N={k_poison}_batch_{from_idx}_{to_idx}.pth"
         torch.save(cert_accs_milp, fname)
         print(f"Results saved to {fname}!")
 

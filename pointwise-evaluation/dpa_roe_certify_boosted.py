@@ -32,6 +32,9 @@ INF = 10 ** 9
 parser = argparse.ArgumentParser(description='Certification')
 parser.add_argument('--evaluations',  type=str, help='name of evaluations directory')
 parser.add_argument('--num_classes', type=int, default=10, help='Number of classes')
+parser.add_argument('--k', type=int, default=10, help='number of partitions')
+parser.add_argument('--d', type=int, default=10, help='number to spread')
+
 
 args = parser.parse_args()
 if not os.path.exists('./certs'):
@@ -41,16 +44,21 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # print(device)
 
 
-filein = torch.load('evaluations/'+args.evaluations + '.pth', map_location=torch.device(device), weights_only=False)
+filein = torch.load('evaluations/'+args.evaluations + '.pth', map_location=torch.device(device))
 
-labels = filein['labels'][:100]
-scores = filein['scores'][:100]
+labels = filein['labels']
+scores = filein['scores']
 
-max_classes = torch.argsort(scores, dim=2, descending=True).cpu()
+scores_reshaped = scores.view(scores.shape[0], args.k, args.d, args.num_classes)
+print(f"Reshaped scores shape: {scores_reshaped.shape}")
+scores_avg = scores_reshaped.mean(dim=2)
+print(f"Average scores shape: {scores_avg.shape}")
+
+max_classes = torch.argsort(scores_avg, dim=2, descending=True).cpu()
 
 num_of_classes = args.num_classes
-num_of_samples = scores.shape[0]
-num_of_models = scores.shape[1]
+num_of_samples = scores_avg.shape[0]
+num_of_models = scores_avg.shape[1]
 
 cert_dpa = torch.zeros((num_of_samples, ), dtype=torch.int) # cert of samples using DPA
 cert_dpa_roe = torch.zeros((num_of_samples, ), dtype=torch.int) # cert of samples using DPA+ROE
@@ -87,8 +95,8 @@ for i in tqdm(range(num_of_samples)):
     m2_election = np.zeros(num_of_classes, dtype=int)
 
     for cls in range(num_of_classes):
-        m1_election[cls] = 2 * (scores[i, :, m1] > scores[i, :, cls]).sum().item() - num_of_models
-        m2_election[cls] = 2 * (scores[i, :, m2] > scores[i, :, cls]).sum().item() - num_of_models
+        m1_election[cls] = 2 * (scores_avg[i, :, m1] > scores_avg[i, :, cls]).sum().item() - num_of_models
+        m2_election[cls] = 2 * (scores_avg[i, :, m2] > scores_avg[i, :, cls]).sum().item() - num_of_models
     
     # DPA+ROE prediction
     elec = m1_election[m2]
@@ -158,8 +166,6 @@ print("==> original DPA ..")
 certs = cert_dpa
 torchidx = idx_dpa
 certs[torchidx != labels] = -1
-print(torchidx)
-print(labels)
 torch.save(certs,'./certs/v_dpa_'+args.evaluations + '.pth')
 a = certs.cpu().sort()[0].numpy()
 
@@ -173,14 +179,12 @@ print('==================')
 print("==> DPA+ROE ..")
 certs = cert_dpa_roe
 torchidx = idx_dpa_roe
-print((torchidx != labels).sum())
 certs[torchidx != labels] = -1
 torch.save(certs,'./certs/v_dpa_roe_'+args.evaluations + '.pth')
 
 a = certs.cpu().sort()[0].numpy()
 
 roe_dpa_accs = np.array([(i <= a).sum() for i in np.arange(np.amax(a)+1)])/num_of_samples
-print(certs)
 print('Smoothed classifier accuracy: ' + str(roe_dpa_accs[0] * 100.) + '%')
 print('Robustness certificate: ' + str(sum(roe_dpa_accs >= .5)))
 print(roe_dpa_accs)
